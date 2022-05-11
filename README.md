@@ -486,6 +486,8 @@ Deploy wisi (PODy w stanie Pending) zaś Autoskaler nie rozkręci extra-nodes gd
 
 
 
+```
+
 $ kk get po
 NAME                        READY   STATUS    RESTARTS   AGE
 consumer-6dcb6986f5-2b6cx   0/1     Pending   0          21s
@@ -523,7 +525,5 @@ consumer-6dcb6986f5-2b6cx   1/1     Running   0          4m54s   10.104.3.2   gk
 consumer-6dcb6986f5-5pdp2   1/1     Running   0          4m54s   10.104.2.2   gke-central-pool-7-cd3343f3-4x27   <none>           <none>
 
 ```
-
-
 
 
