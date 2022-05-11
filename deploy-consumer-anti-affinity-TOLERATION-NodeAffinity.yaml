@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  generation: 1
+  labels:
+    app: consumer
+  name: consumer
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: consumer
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - consumer
+            topologyKey: "kubernetes.io/hostname"
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: machine
+                operator: In
+                values:
+                - big
+      containers:
+      - image: gimboo/nginx_nonroot
+        imagePullPolicy: Always
+        name: apacz-2
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+#        resources:
+#          requests:
+#            cpu: "0.5"
+# 
+# TOLERATION NA WSZYSTKO 
+#      tolerations:
+#      - effect: NoSchedule
+#        operator: Exists
+# 
+      tolerations:
+      - effect: NoSchedule
+        key: extranodes
+        operator: Equal
+        value: mlops
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30

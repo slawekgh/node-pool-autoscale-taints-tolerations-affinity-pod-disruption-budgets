@@ -1,0 +1,10 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: consumer2-pdb
+spec:
+  minAvailable: 4
+
+  selector:
+    matchLabels:
+      app: consumer2

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  generation: 1
+  labels:
+    app: consumer2
+  name: consumer2
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 5
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: consumer2
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: consumer2
+    spec:
+      containers:
+      - image: gimboo/nginx_nonroot
+        imagePullPolicy: Always
+        name: apacz-2
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+# TOLERATION NA WSZYSTKO 
+#      tolerations:
+#      - effect: NoSchedule
+#        operator: Exists
+      tolerations:
+      - effect: NoSchedule
+        key: extranodes
+        operator: Equal
+        value: mlops
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
