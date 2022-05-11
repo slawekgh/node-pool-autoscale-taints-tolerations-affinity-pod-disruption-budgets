@@ -513,7 +513,7 @@ gcloud container node-pools create pool-7 --cluster central --node-taints=extran
 
 ```
 
-i już jest ok: 
+i już jest ok, Deploy wymaga aby jego PODy uruchomiły się tylko na nodach z labelem "machine=big" , Autoskaler uruchamia zatem taką node-pool (pool-7) a na niej uruchamiają się PODy:
 
 
 
@@ -525,5 +525,7 @@ consumer-6dcb6986f5-2b6cx   1/1     Running   0          4m54s   10.104.3.2   gk
 consumer-6dcb6986f5-5pdp2   1/1     Running   0          4m54s   10.104.2.2   gke-central-pool-7-cd3343f3-4x27   <none>           <none>
 
 ```
+
+
 
 
