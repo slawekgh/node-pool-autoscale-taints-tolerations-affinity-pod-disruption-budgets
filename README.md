@@ -165,7 +165,7 @@ PODSUMOWUJĄC: wygląda na to że deploye systemowe jeśli mają safe-to-evict: 
 
 
 
-### c) wymuszanie j.w ale via affinity 
+### c) Wymuszanie via affinity 
 
 żeby nie dociskać wyzwolenia węzłów prymitywnie nadmierną ilością podów (a) ani sztucznymi/fikcyjnymi cpu-reqests(b) można wyzwolić to via affinity - czyli deploy ma każdy swój POD deployować na inny node :
 
@@ -200,5 +200,105 @@ plik deploy-consumer-anti-affinity.yaml
 
 
 powyższy mechanizm  (https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#more-practical-use-cases) separuje wszystkie PODy na różnych węzłach , a jak brakuje węzłów żeby zrobić stosowne replicas to dosztukuje węzły via autoskaler i Scale-UP: 
+
+
+
+
+
+### Jak działa mechanizm via podAntiAffinity aby rozrzucać PODy na różne Nody - w praktyce 
+
+
+
+mamy 2 węzły w default-pool:
+
+```
+
+$ kk get nodes
+NAME                                     STATUS   ROLES    AGE   VERSION
+gke-central-default-pool-4afc0907-c60x   Ready    <none>   10h   v1.21.10-gke.2000
+gke-central-default-pool-4afc0907-g7ll   Ready    <none>   10h   v1.21.10-gke.2000
+```
+
+wgrywamy deploy z tym gizmem ale z R=1 
+
+```
+
+$ kk apply -f deploy-consumer-anti-affinity.yaml
+deployment.apps/consumer created
+$ kk get po -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP             NODE                                     NOMINATED NODE   READINESS GATES
+consumer-bc4d56946-lfqhz   1/1     Running   0          5s    10.104.1.141   gke-central-default-pool-4afc0907-c60x   <none>           <none>
+```
+
+
+
+robimy scale do 2 - nic sie nie dzieje bo mamy 2 node w default-pool , więc nawet jeśli nie wolno im przebywać obok siebie to się jeszcze jakoś mieszczą 
+
+```
+
+$ kk scale deploy consumer --replicas=2
+deployment.apps/consumer scaled
+$ kk get po -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP             NODE                                     NOMINATED NODE   READINESS GATES
+consumer-bc4d56946-52mn2   1/1     Running   0          3s    10.104.0.92    gke-central-default-pool-4afc0907-g7ll   <none>           <none>
+consumer-bc4d56946-lfqhz   1/1     Running   0          30s   10.104.1.141   gke-central-default-pool-4afc0907-c60x   <none>           <none>
+$ kk get nodes
+NAME                                     STATUS   ROLES    AGE   VERSION
+gke-central-default-pool-4afc0907-c60x   Ready    <none>   10h   v1.21.10-gke.2000
+gke-central-default-pool-4afc0907-g7ll   Ready    <none>   10h   v1.21.10-gke.2000
+
+```
+
+robimy scale do 3 - autoskaler musi dorzucić 1 extra węzeł :
+
+```
+
+$ kk scale deploy consumer --replicas=3
+deployment.apps/consumer scaled
+$ kk get po -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP             NODE                                     NOMINATED NODE   READINESS GATES
+consumer-bc4d56946-4wz5d   0/1     Pending   0          4s    <none>         <none>                                   <none>           <none>
+consumer-bc4d56946-52mn2   1/1     Running   0          23s   10.104.0.92    gke-central-default-pool-4afc0907-g7ll   <none>           <none>
+consumer-bc4d56946-lfqhz   1/1     Running   0          50s   10.104.1.141   gke-central-default-pool-4afc0907-c60x   <none>           <none>
+
+```
+
+po chwili POD ktory miał stan Pending rozkręca się (bo już ma gdzie):
+
+```
+
+$ kk get po -o wide
+NAME                       READY   STATUS    RESTARTS   AGE    IP             NODE                                     NOMINATED NODE   READINESS GATES
+consumer-bc4d56946-4wz5d   1/1     Running   0          76s    10.104.2.2     gke-central-pool-1-0b68fd7f-tnzw         <none>           <none>
+consumer-bc4d56946-52mn2   1/1     Running   0          95s    10.104.0.92    gke-central-default-pool-4afc0907-g7ll   <none>           <none>
+consumer-bc4d56946-lfqhz   1/1     Running   0          2m2s   10.104.1.141   gke-central-default-pool-4afc0907-c60x   <none>           <none>
+$ kk get nodes
+NAME                                     STATUS   ROLES    AGE   VERSION
+gke-central-default-pool-4afc0907-c60x   Ready    <none>   10h   v1.21.10-gke.2000
+gke-central-default-pool-4afc0907-g7ll   Ready    <none>   10h   v1.21.10-gke.2000
+gke-central-pool-1-0b68fd7f-tnzw         Ready    <none>   36s   v1.21.10-gke.2000
+
+```
+
+
+
+robimy scale do 4 - autoskaler musi dorzucić jeszcze jeden (to już drugi) extra węzeł :
+
+```
+
+$ kk scale deploy consumer --replicas=4
+deployment.apps/consumer scaled
+$ kk get po -o wide
+NAME                       READY   STATUS    RESTARTS   AGE     IP             NODE                                     NOMINATED NODE   READINESS GATES
+consumer-bc4d56946-4wz5d   1/1     Running   0          110s    10.104.2.2     gke-central-pool-1-0b68fd7f-tnzw         <none>           <none>
+consumer-bc4d56946-52mn2   1/1     Running   0          2m9s    10.104.0.92    gke-central-default-pool-4afc0907-g7ll   <none>           <none>
+consumer-bc4d56946-lfqhz   1/1     Running   0          2m36s   10.104.1.141   gke-central-default-pool-4afc0907-c60x   <none>           <none>
+consumer-bc4d56946-pv6l6   0/1     Pending   0          8s      <none>         <none>                                   <none>           <none>
+
+```
+
+i tak dalej (do czasu aż nam węzłów wystarczy)
+
+
 
 
