@@ -9,22 +9,6 @@ jak w nazwie repo - omawiamy tu:
 - PodDisruptionBudgets
 
 
-
-# TYT1
-
-aaa
-
-
-## TYT2
-
-aaaa
-
-### TYT3 
-
-```
-terminal
-block
-```
 # GKE-Node-Pools z autoskalowaniem 
 
 powołanie auto-scale pool z taint (extranodes=mlops) via gcloud :
@@ -39,7 +23,7 @@ chwile po powołaniu nowej dodatkowej auto-scaled-node-pool pojawiają się na n
 
 ```
 
-slawek_wolak@cs-470434381902-default:~$ kubectl get po -A -o wide | grep pool-6
+$ kubectl get po -A -o wide | grep pool-6
 kube-system   fluentbit-gke-485js                                 2/2     Terminating         0          16m   10.128.0.4    gke-central-pool-1-0b68fd7f-v4q6         <none>           <none>
 kube-system   fluentbit-gke-ck9lk                                 2/2     Terminating         0          16m   10.128.0.5    gke-central-pool-1-0b68fd7f-gwkf         <none>           <none>
 kube-system   fluentbit-gke-jzwzs                                 2/2     Terminating         0          16m   10.128.0.6    gke-central-pool-1-0b68fd7f-j4hm         <none>           <none>
@@ -65,7 +49,7 @@ Są one wynikami Daemon-setów (oczywiście tych gdzie nie ma ZERO/ZERO):
 
 ```
 
-slawek_wolak@cs-470434381902-default:~/AUTOSCALER-GKE$ kk get daemonsets -A
+$ kk get daemonsets -A
 NAMESPACE     NAME                        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR                                                             AGE
 kube-system   fluentbit-gke               5         5         5       5            5           kubernetes.io/os=linux                                                    172m
 kube-system   gke-metadata-server         5         5         5       5            5           beta.kubernetes.io/os=linux,iam.gke.io/gke-metadata-server-enabled=true   172m
@@ -79,5 +63,142 @@ kube-system   pdcsi-node                  5         5         5       5         
 kube-system   pdcsi-node-windows          0         0         0       0            0           kubernetes.io/os=windows                                                  172m
 
 ```
+
+
+
+co ważne - jak się powoła node-poole z TAINT to powyższe i tak na chwile się pojawiają - dlatego że po pierwsze są DaemonSetami a po drugie DS-systemowe mają tolerację na wszystko
+
+
+
+natomiast raczej tak zaraz po dodaniu do GKE  dodatkowej node-pooli nie powinno się na niej na tzw. "chwilę" pojawić nic co jest deployem czy STS - wyłącznie DaemonSety (chociaż różnie bywa)
+
+
+
+
+
+## Jak wygląda praca z nodami z puli która ma autoskalowanie - czyli WYMUSZENIA SCALE-UP (żeby te dodatkowe nody się obudziły):
+
+
+
+### a) Wymuszenie ilościowe
+
+przykładowo scale deployu do 200 (198 max na default-pool, powołuje 1-extra-node) , scale do 400 (powołuje 2gi extra-node), scale do 450 - powołuje 3ci extra node
+
+po takim scale-up poza app-pods na extra-nodes pojawia się składowe-śmieciowe związane z Daemon-setami z kube-system (fluentbit-gke,gke-metadata-server,gke-metrics-agent,netd i pdcsi-node) oraz czasem może zdarzyć się że związane z deployami (konnectivity-agent)
+
+po scale down dla businnes-PODS do ZERO znika wszystko , te systemowe śmiecie też i na końcu oczywiście te dodatkowe nody też są wyłączane 
+
+
+
+### b) Wymuszenie via requesty przekraczające rozmiar Linuxów w default-pool
+
+
+
+skoro te nody w default-pool mają każdy: CPU requested￼ CPU allocatable￼ Memory requested￼ Memory allocatable￼: 371 mCPU 1.93 CPU 529.53 MB 5.89 GB to żeby przekroczyć zróbmy na CPU w definicji YAML-deployu:
+
+   spec:
+      containers:
+      - image: gimboo/nginx_nonroot
+        resources:
+
+          requests:
+            cpu: "0.5"
+
+[...]
+
+
+
+powyższe jest obecne w pliku deploy-consumer.yaml
+
+
+
+
+
+### PROBLEMY Z BLOKOWANIEM WĘZŁÓW, jak powstają i skąd się biorą 
+
+
+
+jak wiemy śmieci z kube-system pojawiają na auto-scale-node-pool ((po zwykłym obudzeniu tej puli loadem biznesowym) LUB (zaraz po utworzeniu tej puli po czym znikają))  - te śmieci to oczywiście DaemonSety (fluentbit-gke,gke-metadata-server,gke-metrics-agent,kube-proxy,netd,pdcsi-node), czasami też śmieci z Deploymentu (tu konnectivity-agent)
+
+po scale down dla businnes-PODS do ZERO znika wszystko , systemowe śmiecie też i nody też 
+
+
+
+gdy jednak zdarzy sie że na extra-node-pool wskoczy POD związany z systemowym Deployem to sytuacja może być różna 
+
+
+
+wystarczy spowodować przypadek (via N x "kubectl delete") że na extra-node wskoczy z deployów systemowych poza konnectivity-agent jeszcze np. kube-dns - wtedy pula sie zblokuje (mimo wyłączenia load-biznesowego nie nastąpi likwidacja nodów w puli) 
+
+
+
+POD z deployu kube-dns trzyma węzeł i powoduje w logu GKE error: no.scale.down.node.pod.kube.system.unmovable 
+
+
+
+oczywiście po "kubectl delete" na POD z kube-dns na extra-węźle zostaje tylko konnectivity-deploy-pod , po czym znika i pula sie zeruje 
+
+
+
+obydwa te deploye (kube-dns i konnectivity-agent) są z kube-system, czym zatem się różnią ? jeden blokuje extra-węzły a drugi nie blokuje 
+
+
+
+konnectivity-agent ma na pewno coś czego nie ma kube-dns: 
+
+```
+
+  template:
+    metadata:
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+
+```
+
+
+
+przestawić się mu na false nie da wiec można zrobić na odwrót i wstawić true dla kube-dns -  po ponownym teście wychodzi wtedy że kube-dns przestaje blokować i trzymać przy życiu węzły z puli atoskalowanej  i się migruje 
+
+
+
+PODSUMOWUJĄC: wygląda na to że deploye systemowe jeśli mają safe-to-evict: "true" to nie blokują operacji Scale-down, jesli nie mają to trzymają węzeł do usranej śmierci 
+
+
+
+### c) wymuszanie j.w ale via affinity 
+
+żeby nie dociskać wyzwolenia węzłów prymitywnie nadmierną ilością podów (a) ani sztucznymi/fikcyjnymi cpu-reqests(b) można wyzwolić to via affinity - czyli deploy ma każdy swój POD deployować na inny node :
+
+
+
+```
+
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - consumer
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - image: gimboo/nginx_nonroot
+        imagePullPolicy: Always
+        name: apacz-2
+
+```
+
+plik deploy-consumer-anti-affinity.yaml
+
+
+
+powyższy mechanizm  (https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#more-practical-use-cases) separuje wszystkie PODy na różnych węzłach , a jak brakuje węzłów żeby zrobić stosowne replicas to dosztukuje węzły via autoskaler i Scale-UP: 
 
 
