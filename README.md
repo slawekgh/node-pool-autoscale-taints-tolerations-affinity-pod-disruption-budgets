@@ -326,7 +326,7 @@ Updates for 'taints' are not supported in node pools with autoscaling enabled (a
 
 
 
-jak sie nałoży taki TAINT to Autoscaler czasem rozkręci dodatkowy node a czasami wogóle zrezygnuje z tego - ale niezależnie czy rozkręci czy nie to zawsze zadziała tak że nie wpuści PODa : 
+jak sie nałoży taki TAINT to po wymuszeniu deployentem biznesowym powołania extra-nodes Autoscaler czasem rozkręci dodatkowy node a czasami wogóle zrezygnuje z tego - ale niezależnie czy rozkręci czy nie to zawsze zadziała tak że nie wpuści PODa : 
 
 
 
@@ -451,5 +451,79 @@ node.kubernetes.io/unschedulable (1.10 or later)
 node.kubernetes.io/network-unavailable (host network only)
 
 ```
+
+
+
+
+
+## LABEL na nodach i nakaz deployu tylko na nody z takim labelem (tzw. NodeAffinity)
+
+
+
+zostawmy jeszcze na chwile starą auto-skalowaną-node-pool (ale bez labelu - czyli pool-6) i wdrażamy deploy który ma dodatkowo:
+
+
+
+```     
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: machine
+                operator: In
+                values:
+                - big
+
+```
+
+plik deploy-consumer-anti-affinity-TOLERATION-NodeAffinity.yaml
+
+
+
+
+
+Deploy wisi (PODy w stanie Pending) zaś Autoskaler nie rozkręci extra-nodes gdyż nie ma spełnionego warunku:
+
+
+
+$ kk get po
+NAME                        READY   STATUS    RESTARTS   AGE
+consumer-6dcb6986f5-2b6cx   0/1     Pending   0          21s
+consumer-6dcb6986f5-5pdp2   0/1     Pending   0          21s
+
+
+
+  Warning  FailedScheduling   13s   default-scheduler   0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector.
+  Warning  FailedScheduling   12s   default-scheduler   0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector.
+  Normal   NotTriggerScaleUp  11s   cluster-autoscaler  pod didn't trigger scale-up: 1 node(s) didn't match Pod's node affinity/selector
+
+```
+
+
+
+potrzebna jest zatem nowa node-poola - ale tym razem z Labelem (machine=big):
+
+
+
+```
+
+gcloud container node-pools create pool-7 --cluster central --node-taints=extranodes=mlops:NoSchedule --enable-autoscaling --max-nodes=3 --min-nodes=0 --node-labels=machine=big
+
+```
+
+i już jest ok: 
+
+
+
+```
+
+$ kk get po -o wide
+NAME                        READY   STATUS    RESTARTS   AGE     IP           NODE                               NOMINATED NODE   READINESS GATES
+consumer-6dcb6986f5-2b6cx   1/1     Running   0          4m54s   10.104.3.2   gke-central-pool-7-cd3343f3-n9fn   <none>           <none>
+consumer-6dcb6986f5-5pdp2   1/1     Running   0          4m54s   10.104.2.2   gke-central-pool-7-cd3343f3-4x27   <none>           <none>
+
+```
+
+
 
 
