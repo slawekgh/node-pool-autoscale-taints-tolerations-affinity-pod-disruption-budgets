@@ -1,11 +1,12 @@
+
 # node-pool-autoscale-taints-tolerations-affinity-pod-disruption-budgets
 
 jak w nazwie repo - omawiamy tu:
 - node-pools z opcją autoskalowania
 - taints
-- toleration na taints 
+- toleration na taints
 - affinity, POD affinity, AntiAffinity, NodeAffinity
-- eviction 
+- eviction
 - PodDisruptionBudgets
 
 
@@ -297,8 +298,158 @@ consumer-bc4d56946-pv6l6   0/1     Pending   0          8s      <none>         <
 
 ```
 
-i tak dalej (do czasu aż nam węzłów wystarczy)
+i tak dalej (do czasu aż nam węzłów w tej dodatkowej puli wystarczy)
 
 
+
+
+
+
+
+
+
+## TAINT na Nodach - czyli jak zabronić wjazdu na nody 
+
+
+
+Taint to blokada wejścia dla wszystkich którzy nie tolerują takiego tainta (a że nody same powstają i się same gaszą to oczywiście nie biegamy za nodami z pieczątką ale nakładamy taint nie na node ale na całą node-pool) 
+
+
+
+UWAGA ! do puli z autoskalowaniem nie da się dorzucić TAINT : 
+
+```
+
+Updates for 'taints' are not supported in node pools with autoscaling enabled (as a workaround, consider temporarily disabling autoscaling or recreating the node pool with the updated values.).
+
+```
+
+
+
+jak sie nałoży taki TAINT to Autoscaler czasem rozkręci dodatkowy node a czasami wogóle zrezygnuje z tego - ale niezależnie czy rozkręci czy nie to zawsze zadziała tak że nie wpuści PODa : 
+
+
+
+```
+
+Events:
+  Type     Reason             Age                    From                Message
+  ----     ------             ----                   ----                -------
+  Warning  FailedScheduling   19m                    default-scheduler   0/5 nodes are available: 2 node(s) didn't match pod affinity/anti-affinity rules, 2 node(s) didn't match pod anti-affinity rules, 3 node(s) had taint {extranodes: mlops}, that the pod didn't tolerate.
+```
+
+LUB (w przypadku gdy nawet nie chce rozkręcić auto-scale-node-pooli:) :
+
+
+
+```
+
+   Warning  FailedScheduling   93s               default-scheduler   0/2 nodes are available: 2 node(s) didn't match pod affinity/anti-affinity rules, 2 node(s) didn't match pod anti-affinity rules.
+
+  Warning  FailedScheduling   3s (x1 over 91s)  default-scheduler   0/2 nodes are available: 2 node(s) didn't match pod affinity/anti-affinity rules, 2 node(s) didn't match pod anti-affinity rules.
+  Normal   NotTriggerScaleUp  91s               cluster-autoscaler  pod didn't trigger scale-up: 1 node(s) had taint {extranodes: mlops}, that the pod didn't tolerate
+
+```
+
+
+
+## TOLERATION
+
+
+
+aby Deployment wszedł na nody z TAINTS potrzebna jest w deploymencie wstawiona toleration:
+
+
+
+```
+
+      tolerations:
+      - effect: NoSchedule
+        key: extranodes
+        operator: Equal
+        value: mlops
+      dnsPolicy: ClusterFirst
+
+```
+
+
+
+plik deploy-consumer-anti-affinity-TOLERATION.yaml
+
+
+
+
+
+PRZY OKAZJI PATENT NA TOLERATION "NA WSZYSTKO" - sprytne ale niebezpieczne :
+
+```
+#      tolerations:
+#      - effect: NoSchedule
+#        operator: Exists
+
+``` 
+
+
+
+## AUTOMATIC k8s TAINTS i CONDITION TAINTS 
+
+
+
+idąc za: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+
+
+
+nie tylko admin moze robić taint na węzłach, robi to również sam k8s (a konkretnie node-controller): 
+
+
+
+```
+
+The node controller automatically taints a Node when certain conditions are true. The following taints are built in:
+
+node.kubernetes.io/not-ready: Node is not ready. This corresponds to the NodeCondition Ready being "False".
+node.kubernetes.io/unreachable: Node is unreachable from the node controller. This corresponds to the NodeCondition Ready being "Unknown".
+node.kubernetes.io/memory-pressure: Node has memory pressure.
+node.kubernetes.io/disk-pressure: Node has disk pressure.
+node.kubernetes.io/pid-pressure: Node has PID pressure.
+node.kubernetes.io/network-unavailable: Node's network is unavailable.
+node.kubernetes.io/unschedulable: Node is unschedulable.
+node.cloudprovider.kubernetes.io/uninitialized: When the kubelet is started with "external" cloud provider, this taint is set on a node to mark it as unusable. After a controller from the cloud-controller-manager initializes this node, the kubelet removes this taint.
+
+```
+
+
+
+możemy zatem np. uzbroić nasz deployment w toleration dla któregoś z tych stanów - np POD nieprzeganialny przez node.kubernetes.io/unreachable musi zawierać definicję: 
+
+
+
+```
+
+tolerations:
+- key: "node.kubernetes.io/unreachable"
+  operator: "Exists"
+  effect: "NoExecute"
+  tolerationSeconds: 6000
+
+```
+
+
+
+są też Tainty nakładane przez conditions:
+
+
+
+
+
+```
+
+node.kubernetes.io/memory-pressure
+node.kubernetes.io/disk-pressure
+node.kubernetes.io/pid-pressure (1.14 or later)
+node.kubernetes.io/unschedulable (1.10 or later)
+node.kubernetes.io/network-unavailable (host network only)
+
+```
 
 
