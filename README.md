@@ -10,7 +10,7 @@ jak w nazwie repo - omawiamy tu:
 
 
 
-### TYT1
+# TYT1
 
 aaa
 
@@ -19,7 +19,7 @@ aaa
 
 aaaa
 
-# TYT3 
+### TYT3 
 
 ```
 terminal
