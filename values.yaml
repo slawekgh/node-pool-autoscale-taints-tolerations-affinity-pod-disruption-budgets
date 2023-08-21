@@ -13,7 +13,7 @@ PROTO : TCP
 targetPort : 8080
 #image: gimboo/nginx_nonroot
 #imagePolicy: Always
-testlabel: jasiu
+ala: makota
 
 
 obraz:
